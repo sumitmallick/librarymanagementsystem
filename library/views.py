@@ -19,7 +19,11 @@ def checkout_book(request: HttpRequest):
         member_id = request.data.get('member_id')
         
         try:
-            book = Book.objects.get(id=book_id)
+            book_cache = cache.get(f'book_cache_{book_id}')
+            if book_cache:
+                book = Book(**book_cache)
+            else:
+                book = Book.objects.get(id=book_id)
             if book.copies_available > 0:
                 # Create Circulation record
                 circulation = Circulation.objects.create(
@@ -53,14 +57,23 @@ def return_book(request: HttpRequest):
         member_id = request.data.get('member_id')
         
         try:
-            book = Book.objects.get(id=book_id)
+            book_cache = cache.get(f'book_cache_{book_id}')
+            if book_cache:
+                book = Book(**book_cache)
+            else:
+                book = Book.objects.get(id=book_id, is_deleted=False)
             # Find circulation record for the book and member
-            circulation = Circulation.objects.get(book=book, member_id=member_id, event_type='checkout')
+            circulation_cache = cache.get(f'circulation_cache_{str(book_id)+'_'+str(member_id)}')
+            if circulation_cache:
+                circulation = Circulation(**circulation_cache)
+            else:
+                circulation = Circulation.objects.get(book=book, member_id=member_id, event_type='checkout')
             
-            # Delete circulation record
-            circulation.delete()
-            cache.delete(f'circulation_{book_id}')
-            
+            cache.delete(f'circulation_cache_{str(book_id)+'_'+str(member_id)}')
+            circulation.is_deleted = True
+            circulation.save()
+            cache.set(f'circulation_cache_{str(book_id)+'_'+str(member_id)}', book_id, member_id, timeout=3000)
+
             # Increment available copies
             book.copies_available += 1
             cache.delete(f'book_cache_{book_id}')
@@ -68,7 +81,7 @@ def return_book(request: HttpRequest):
             cache.set(f'book_cache_{book_id}', book_id, timeout=3000)
             serializer = BookSerializer(book)
 
-            return Response({'data': BookSerializer.data, 'message': 'Book returned successfully'}, status=status.HTTP_200_OK)
+            return Response({'data': serializer.data, 'message': 'Book returned successfully'}, status=status.HTTP_200_OK)
         except Book.DoesNotExist:
             return Response({'message': 'Book not found'}, status=status.HTTP_404_NOT_FOUND)
         except Circulation.DoesNotExist:
@@ -142,3 +155,4 @@ def fulfill_reservation(request: HttpRequest):
             return Response({'data': serializer.data, 'message': 'Book not found'}, status=status.HTTP_404_NOT_FOUND)
         except Exception as e:
             return Response({'message': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+

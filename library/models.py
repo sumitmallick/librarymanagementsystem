@@ -18,6 +18,7 @@ class Circulation(models.Model):
     member = models.ForeignKey(Member, on_delete=models.CASCADE, db_index=True)
     event_type = models.CharField(max_length=20)
     event_date = models.DateTimeField(auto_now_add=True)
+    is_deleted = models.BooleanField(default=False)
 
 
 class Reservation(models.Model):
